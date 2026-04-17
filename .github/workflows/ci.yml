@@ -5,6 +5,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 jobs:
   macos:
@@ -13,6 +14,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Ensure TagLibCore spm_public_headers directory
+        run: mkdir -p vendor/taglib/taglib/spm_public_headers
 
       - name: Swift build (host)
         run: swift build

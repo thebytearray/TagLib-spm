@@ -1,0 +1,66 @@
+# Manual release: build SwiftPM release artifacts and attach them to GitHub Releases.
+#
+# Requires:
+# 1. Push the tag (annotated) on the commit you want to ship:
+#    git tag -a v1.0.0 -m "Release 1.0.0"
+#    git push origin v1.0.0
+# 2. Run this workflow from the Actions tab, enter the same tag (e.g. v1.0.0).
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to build (must already exist on origin)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          submodules: recursive
+
+      - name: Ensure TagLibCore spm_public_headers directory
+        run: mkdir -p vendor/taglib/taglib/spm_public_headers
+
+      - name: Build macOS release
+        run: swift build -c release
+
+      - name: Build iOS Simulator release
+        run: |
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          swift build -c release --triple arm64-apple-ios15.0-simulator \
+            -Xswiftc -sdk -Xswiftc "$SDK" \
+            -Xcc -isysroot -Xcc "$SDK"
+
+      - name: Package SwiftPM release outputs per triple
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          TAG_SAFE="${TAG//\//-}"
+          for d in .build/*/release; do
+            [ -d "$d" ] || continue
+            triple=$(basename "$(dirname "$d")")
+            tar -czf "TagLibSPM-${triple}-${TAG_SAFE}.tar.gz" -C "$d" .
+          done
+          ls -la TagLibSPM-*.tar.gz
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: Release ${{ inputs.tag }}
+          files: TagLibSPM-*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

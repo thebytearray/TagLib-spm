@@ -19,8 +19,9 @@ This package tracks the **official** TagLib sources as a **git submodule** rathe
 7. [How the package is built](#how-the-package-is-built)
 8. [Building and testing](#building-and-testing)
 9. [Swift API documentation (DocC)](#swift-api-documentation-docc)
-10. [Troubleshooting](#troubleshooting)
-11. [License](#license)
+10. [GitHub releases (manual)](#github-releases-manual)
+11. [Troubleshooting](#troubleshooting)
+12. [License](#license)
 
 ---
 
@@ -249,7 +250,11 @@ SwiftPM targets:
 | **CTagLib** | C bridge (`Sources/CTagLib/Bridge`) and a C header for Swift. Links `TagLibCore` and `z`.
 | **TagLib** | Swift wrapper. Depends on `CTagLib`.
 
-Apple-specific compile flags and `config.h` / `taglib_config.h` live under **`Sources/CTagLib/_spm_config`**. An empty directory **`vendor/taglib/taglib/spm_public_headers`** exists only so SwiftPM can set a valid `publicHeadersPath` on the core target without publishing real headers to the Swift module.
+Apple-specific compile flags and `config.h` / `taglib_config.h` live under **`Sources/CTagLib/_spm_config`**. SwiftPM also needs an **empty** directory **`vendor/taglib/taglib/spm_public_headers`** so the **TagLibCore** target can set a valid `publicHeadersPath` without exposing C++ headers to Swift. That path is not part of upstream TagLib, so create it after cloning submodules if `swift build` reports an invalid public headers path:
+
+```bash
+mkdir -p vendor/taglib/taglib/spm_public_headers
+```
 
 ---
 
@@ -258,11 +263,33 @@ Apple-specific compile flags and `config.h` / `taglib_config.h` live under **`So
 From the repository root:
 
 ```bash
+mkdir -p vendor/taglib/taglib/spm_public_headers   # once per clone if missing
 swift build
 swift test
 ```
 
-Continuous integration (see `.github/workflows/ci.yml`) runs `swift build`, `swift test`, and an **iOS Simulator** cross-compile to verify the C++ and Swift stack link for iOS.
+Continuous integration (see `.github/workflows/ci.yml`) runs `swift build`, `swift test`, and an **iOS Simulator** cross-compile to verify the C++ and Swift stack link for iOS. You can also run that workflow **manually** from the repository **Actions** tab (**Run workflow**).
+
+---
+
+## GitHub releases (manual)
+
+This repository does **not** auto-publish on every push. To ship a release with SwiftPM **release** build artifacts attached to **GitHub Releases**:
+
+1. **Create and push a tag** on the commit you want to release (example: `v1.0.0`):
+
+   ```bash
+   git tag -a v1.0.0 -m "Release 1.0.0"
+   git push origin v1.0.0
+   ```
+
+2. In GitHub, open **Actions** → workflow **Release** → **Run workflow**.
+
+3. Enter the **same tag** (e.g. `v1.0.0`) and run.
+
+The workflow checks out that tag (with submodules), runs `swift build -c release` for **macOS** and **iOS Simulator**, then packages each `.build/*/release` directory into a tarball and uploads them to a **GitHub Release** for that tag (with auto-generated release notes). The tag must already exist on the remote so the workflow can check it out.
+
+**Note:** Most apps depend on this package as source via SwiftPM; the tarballs are convenience artifacts (SwiftPM build outputs, not `.xcframework` bundles). If you need XCFrameworks, build them in Xcode or a custom script from the same tag.
 
 ---
 
