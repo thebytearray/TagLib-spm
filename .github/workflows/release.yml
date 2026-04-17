@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Git tag to build (must already exist on origin)"
+        description: "Tag name only (e.g. v1.0.0). Must exist on origin. Do not use refs/tags/…"
         required: true
         type: string
 
@@ -26,7 +26,9 @@ jobs:
       - name: Checkout tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
           submodules: recursive
 
       - name: Ensure TagLibCore spm_public_headers directory
