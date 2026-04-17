@@ -70,11 +70,11 @@ let package = Package(
     products: [
         .library(
             name: "TagLib",
+            type: .dynamic,
             targets: ["TagLib"]
         ),
     ],
     dependencies: [
-        // Swift-DocC: `swift package generate-documentation` and `preview-documentation` (local server).
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.0"),
     ],
     targets: [

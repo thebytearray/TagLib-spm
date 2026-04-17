@@ -191,6 +191,8 @@ swift test
 
 API docs (DocC): `swift package --disable-sandbox preview-documentation --target TagLib`, or `swift package generate-documentation --target TagLib`.
 
+The **`TagLib`** product is built as a **dynamic** library so Xcode can produce **`TagLib.framework`** slices for an **XCFramework**. GitHub **Actions → Release** builds `TagLib.xcframework`, zips it, and attaches **`TagLib.xcframework.zip`** to the release. Locally: `./Scripts/create-xcframework.sh <output-dir>`.
+
 ---
 
 ## License
