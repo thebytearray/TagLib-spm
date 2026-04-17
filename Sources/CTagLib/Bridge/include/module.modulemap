@@ -1,0 +1,4 @@
+module CTagLib {
+    header "taglib_swift_bridge.h"
+    export *
+}

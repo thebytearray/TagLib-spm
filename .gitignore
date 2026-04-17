@@ -1,0 +1,52 @@
+# Swift Package Manager
+.build/
+
+# Xcode / SwiftPM local state (regenerated; not needed for manifest-only workflows)
+.swiftpm/
+
+# Generated Xcode projects (open `Package.swift` in Xcode instead)
+*.xcodeproj
+*.xcworkspace
+
+# Xcode user-specific
+xcuserdata/
+*.xcuserstate
+*.moved-aside
+
+# Xcode / build artifacts
+*.hmap
+DerivedData/
+
+# App packaging (if you add sample apps under this repo)
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Carthage (unused by this package; harmless if present)
+Carthage/Build/
+
+# fastlane (if added later)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# DocC static output (see README; optional local generation)
+/docs/
+
+# Test / coverage (local)
+*.xcresult
+*.profdata
+coverage/
+
+# macOS
+.DS_Store
+
+# Editor backups
+*~
+*.swp
+.*.sw?
