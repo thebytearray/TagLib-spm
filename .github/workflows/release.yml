@@ -23,13 +23,19 @@ jobs:
   release:
     runs-on: macos-latest
     steps:
-      - name: Checkout tag
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ inputs.tag }}
           fetch-depth: 0
           fetch-tags: true
-          submodules: recursive
+
+      - name: Checkout tag and submodules
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" || git fetch origin "${TAG}"
+          git checkout "$TAG"
+          git submodule update --init --recursive
 
       - name: Ensure TagLibCore spm_public_headers directory
         run: mkdir -p vendor/taglib/taglib/spm_public_headers
