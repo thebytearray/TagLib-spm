@@ -1,10 +1,4 @@
-# Manual release: build SwiftPM release artifacts and attach them to GitHub Releases.
-#
-# Requires:
-# 1. Push the tag (annotated) on the commit you want to ship:
-#    git tag -a v1.0.0 -m "Release 1.0.0"
-#    git push origin v1.0.0
-# 2. Run this workflow from the Actions tab, enter the same tag (e.g. v1.0.0).
+# Manual release: tag HEAD of a branch, push the tag, build, upload assets to GitHub Releases.
 
 name: Release
 
@@ -12,8 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag name only (e.g. v1.0.0). Must exist on origin. Do not use refs/tags/…"
+        description: "New tag to create (e.g. v1.0.0). Must not already exist on origin."
         required: true
+        type: string
+      branch:
+        description: "Branch to tag (HEAD of this branch is released)"
+        required: true
+        default: main
         type: string
 
 permissions:
@@ -23,19 +22,13 @@ jobs:
   release:
     runs-on: macos-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout branch
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.branch }}
           fetch-depth: 0
           fetch-tags: true
-
-      - name: Checkout tag and submodules
-        run: |
-          set -euo pipefail
-          TAG="${{ inputs.tag }}"
-          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" || git fetch origin "${TAG}"
-          git checkout "$TAG"
-          git submodule update --init --recursive
+          submodules: recursive
 
       - name: Ensure TagLibCore spm_public_headers directory
         run: mkdir -p vendor/taglib/taglib/spm_public_headers
@@ -49,6 +42,20 @@ jobs:
           swift build -c release --triple arm64-apple-ios15.0-simulator \
             -Xswiftc -sdk -Xswiftc "$SDK" \
             -Xcc -isysroot -Xcc "$SDK"
+
+      - name: Create and push tag
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if git ls-remote origin "refs/tags/${TAG}" | grep -q .
+          then
+            echo "::error::Tag '${TAG}' already exists on origin. Choose a new tag."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
 
       - name: Package SwiftPM release outputs per triple
         run: |
