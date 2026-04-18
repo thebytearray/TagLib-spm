@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       branch:
-        description: "Branch to tag (HEAD of this branch is released)"
+        description: "Branch to release from (source state that the xcframework is built against)."
         required: true
         default: main
         type: string
@@ -43,8 +43,7 @@ jobs:
       - name: Ensure TagLibCore spm_public_headers directory
         run: mkdir -p vendor/taglib/taglib/spm_public_headers
 
-      - name: Swift test (BuildPackage)
-        working-directory: BuildPackage
+      - name: Swift test (source manifest on main)
         run: swift test
 
       - name: Build XCFramework + zip + checksum
@@ -52,32 +51,37 @@ jobs:
           chmod +x Scripts/create-xcframework.sh
           ./Scripts/create-xcframework.sh "${{ runner.temp }}/xc"
 
-      - name: Patch root Package.swift with tag + checksum
+      - name: Generate binary Package.swift for the release tag
         run: |
           set -euo pipefail
           TAG="${{ inputs.tag }}"
           CHECKSUM="$(cat "${{ runner.temp }}/xc/TagLib.xcframework.zip.sha256")"
           echo "Tag:      $TAG"
           echo "Checksum: $CHECKSUM"
-          # BSD sed on macOS: `-i ''` for in-place without backup.
-          sed -i '' -E "s/^let release = \".*\"/let release = \"${TAG}\"/" Package.swift
-          sed -i '' -E "s/^let checksum = \".*\"/let checksum = \"${CHECKSUM}\"/" Package.swift
-          echo "--- Patched Package.swift ---"
-          grep -E "^let (release|checksum) = " Package.swift
+          # Overwrite the working tree's Package.swift with the binary form.
+          # This file is only committed on the detached tag commit below;
+          # `main` keeps the source manifest.
+          sed -e "s|__RELEASE__|${TAG}|g" \
+              -e "s|__CHECKSUM__|${CHECKSUM}|g" \
+              Scripts/binary-package.swift.tmpl > Package.swift
+          echo "--- Generated Package.swift ---"
+          cat Package.swift
 
-      - name: Commit, tag, push
+      - name: Commit, tag, and push the tag only (main is untouched)
         run: |
           set -euo pipefail
           TAG="${{ inputs.tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage just the manifest swap; all other build artifacts stay untracked.
           git add Package.swift
           git commit -m "Release ${TAG}"
           git tag -a "${TAG}" -m "Release ${TAG}"
-          git push origin "HEAD:${{ inputs.branch }}"
-          git push origin "${TAG}"
+          # Push only the tag. The commit is reachable from the tag on origin,
+          # but is NOT advanced onto the branch (main stays on the source manifest).
+          git push origin "refs/tags/${TAG}"
 
-      - name: Upload assets to GitHub Release
+      - name: Upload XCFramework zip to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}

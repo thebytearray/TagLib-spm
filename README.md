@@ -4,7 +4,7 @@
 
 Swift Package Manager library that exposes [TagLib](https://taglib.org/) on **iOS 15+** and **macOS 12+** for reading and writing audio metadata (tags, embedded pictures, and basic audio properties) on local files.
 
-TagLib is shipped as a **prebuilt `TagLib.xcframework`** attached to each GitHub release. The root `Package.swift` declares a `.binaryTarget` pointing at that zip, so SPM consumers don't need to clone submodules or compile any C++ — they just download the xcframework.
+Every tagged release ships a **prebuilt `TagLib.xcframework`** attached to its GitHub release. When you add the package with a version rule (`.package(from: "1.0.0")`), SwiftPM resolves a release tag whose `Package.swift` is a `.binaryTarget` pointing at that tag's xcframework zip, so consumers never need to clone submodules or compile any C++.
 
 ---
 
@@ -16,7 +16,7 @@ TagLib is shipped as a **prebuilt `TagLib.xcframework`** attached to each GitHub
 4. [Public Swift API](#public-swift-api)
 5. [File URLs and threading](#file-urls-and-threading)
 6. [Repository layout](#repository-layout)
-7. [Cutting a release](#cutting-a-release)
+7. [How releases work](#how-releases-work)
 8. [Building the xcframework locally (contributors only)](#building-the-xcframework-locally-contributors-only)
 9. [License](#license)
 
@@ -24,9 +24,9 @@ TagLib is shipped as a **prebuilt `TagLib.xcframework`** attached to each GitHub
 
 ## Requirements
 
-- Consumers: **Xcode** with Swift 5.9 or newer. **No submodules needed.**
-- Contributors building the xcframework: additionally Git with submodule support.
-- `zlib` is linked into the xcframework at build time; consumers get it via load commands in the dylib.
+- Consumers: **Xcode** with Swift 5.9 or newer. **No submodules needed** when resolving from a tag.
+- Contributors: additionally Git with submodule support.
+- `zlib` is linked into the xcframework at build time; consumers pick it up via load commands in the dylib.
 
 ---
 
@@ -51,6 +51,8 @@ dependencies: [
 ```swift
 import TagLib
 ```
+
+Always pin by **version / tag**, not branch — the binary manifest only exists at tag commits (see [How releases work](#how-releases-work)).
 
 ---
 
@@ -171,27 +173,43 @@ Types: `AudioPropertiesReadStyle` (`fast`, `average`, `accurate`), `AudioPropert
 
 ## Repository layout
 
-- `Package.swift` — consumer-facing manifest; a single `.binaryTarget` pointing at the xcframework zip published on the tagged GitHub release. `let release` / `let checksum` are rewritten by the release workflow on each tag.
-- `BuildPackage/Package.swift` — source manifest. Compiles TagLib from the `vendor/taglib` submodule into `TagLib.framework` via `xcodebuild archive`. Only used for building the xcframework and running tests locally or in CI.
+- `Package.swift` (on `main`) — source manifest. Compiles TagLib from the `vendor/taglib` submodule into a dynamic `TagLib.framework`. Used by contributors, CI, and `Scripts/create-xcframework.sh`.
+- `Scripts/binary-package.swift.tmpl` — template for the binary `Package.swift` the release workflow materializes at tag time (`__RELEASE__` and `__CHECKSUM__` placeholders are filled in by `sed`).
+- `Scripts/create-xcframework.sh` — archives `TagLibSPM` for macOS, iOS, and iOS Simulator, bundles them into `TagLib.xcframework`, `ditto`-zips it, and writes `TagLib.xcframework.zip.sha256`.
 - `Sources/` — Swift wrapper (`TagLib`), C++ bridge (`CTagLib`), and SPM-specific config headers for `TagLibCore`.
-- `vendor/taglib` — upstream TagLib C++ sources as a git submodule (only needed by contributors).
-- `Scripts/create-xcframework.sh` — archives `TagLibSPM` from `BuildPackage/` for macOS, iOS, and iOS Simulator, bundles them into `TagLib.xcframework`, `ditto`-zips it, and writes `TagLib.xcframework.zip.sha256`.
-- `.github/workflows/release.yml` — runs the script, patches `let release` / `let checksum` in the root `Package.swift`, commits, tags, pushes, and uploads the zip to the GitHub release.
-- `.github/workflows/ci.yml` — builds and tests against the source manifest in `BuildPackage/` on every push / PR.
+- `vendor/taglib` — upstream TagLib C++ sources as a git submodule.
+- `Tests/TagLibTests` — tests exercising the source build.
+- `.github/workflows/ci.yml` — builds + tests the source manifest on every push / PR.
+- `.github/workflows/release.yml` — the release pipeline (see below).
 
 ---
 
-## Cutting a release
+## How releases work
 
-Trigger `.github/workflows/release.yml` via **Actions → Release → Run workflow**, providing a new tag such as `v1.0.1`. The workflow:
+SwiftPM doesn't allow target paths to escape the package root, so we can't keep two `Package.swift` files side by side. Instead, `main` always carries the **source** manifest (so `swift build` / `swift test` Just Work), and the release workflow generates the **binary** manifest on-the-fly and commits it only at the release tag.
 
-1. Checks out the branch with submodules.
-2. Runs `swift test` against `BuildPackage/`.
-3. Builds `TagLib.xcframework`, zips it with `ditto`, and records its SHA-256.
-4. Rewrites `let release` and `let checksum` in the root `Package.swift`.
-5. Commits, tags, pushes, and publishes the zip as a release asset.
+```
+main:          commit A ─ commit B ─ commit C   ← source Package.swift (compiles from vendor/)
+                                    │
+tag v1.0.0:                         └── commit C' ← binary Package.swift (points at v1.0.0/*.zip)
+```
 
-After the tag is pushed, the root `Package.swift` at that tag references the just-uploaded zip.
+`commit C'` is reachable only from the tag ref on origin; `main` is never advanced onto it. SPM consumers resolving `from: "1.0.0"` fetch `commit C'` and see the `.binaryTarget`.
+
+### Cutting a release
+
+Trigger **Actions → Release → Run workflow** with a new tag (e.g. `v1.0.1`). The workflow:
+
+1. Checks out `main` (or the chosen branch) with submodules.
+2. Fails fast if the tag already exists on origin.
+3. Runs `swift test` against the source manifest.
+4. Runs `Scripts/create-xcframework.sh`, producing `TagLib.xcframework.zip` + its SHA-256.
+5. Substitutes `__RELEASE__` and `__CHECKSUM__` in `Scripts/binary-package.swift.tmpl` and writes the result over `Package.swift` in the working tree.
+6. Commits the rewritten `Package.swift`, annotates the tag on that commit.
+7. Pushes **only the tag** (`git push origin refs/tags/...`). The tag commit becomes reachable on origin; `main` stays untouched.
+8. `softprops/action-gh-release@v2` uploads `TagLib.xcframework.zip` to the release named after the tag.
+
+If you ever need to verify what SPM consumers see: `git show <tag>:Package.swift`.
 
 ---
 
@@ -204,7 +222,7 @@ cd TagLib-spm
 git submodule update --init --recursive
 
 mkdir -p vendor/taglib/taglib/spm_public_headers
-# Opening BuildPackage/Package.swift in Xcode once makes the `TagLibSPM` scheme available.
+# Opening Package.swift in Xcode once makes the `TagLibSPM` scheme available.
 ./Scripts/create-xcframework.sh /path/to/out
 ```
 
@@ -214,14 +232,9 @@ Outputs inside `/path/to/out`:
 - `TagLib.xcframework.zip`
 - `TagLib.xcframework.zip.sha256`
 
-To run tests locally:
+Run tests locally with `swift test`.
 
-```bash
-cd BuildPackage
-swift test
-```
-
-API docs (DocC), from `BuildPackage/`:
+API docs (DocC):
 
 ```bash
 swift package --disable-sandbox preview-documentation --target TagLib

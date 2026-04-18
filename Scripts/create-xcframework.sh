@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Build TagLib.xcframework from BuildPackage/ for macOS, iOS, and iOS Simulator,
-# then zip it with `ditto` and print its SHA-256 so the release workflow can
-# patch the root Package.swift.
+# Build TagLib.xcframework from the source Package.swift for macOS, iOS, and
+# iOS Simulator, then zip it with `ditto` and compute its SHA-256. The release
+# workflow feeds the zip + checksum into a binary `Package.swift` that's
+# committed at the release tag.
 #
 # Usage: ./Scripts/create-xcframework.sh <output-dir>
 # Outputs (under <output-dir>):
 #   TagLib.xcframework/            - created by xcodebuild -create-xcframework
-#   TagLib.xcframework.zip         - ditto-zipped archive (what we attach to the release)
+#   TagLib.xcframework.zip         - ditto-zipped archive (uploaded to the GitHub release)
 #   TagLib.xcframework.zip.sha256  - single-line SHA-256 of the zip
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD_PKG="$ROOT/BuildPackage"
-cd "$BUILD_PKG"
+cd "$ROOT"
 
 OUT="${1:?output directory}"
 mkdir -p "$OUT"
 
-mkdir -p "$ROOT/vendor/taglib/taglib/spm_public_headers"
+mkdir -p vendor/taglib/taglib/spm_public_headers
 
 find_fw() {
   find "$1" -type d -name 'TagLib.framework' -path '*/Products/*' | head -1
@@ -65,8 +65,9 @@ xcodebuild -create-xcframework \
   -output "$OUT/TagLib.xcframework"
 
 echo "Zipping XCFramework with ditto (preserves framework symlinks)…"
-# Use `ditto` — plain `zip -r` mangles framework Version symlinks which breaks
-# loading the .xcframework on consumer machines. Same tool ffmpeg-kit-spm uses.
+# Plain `zip -r` mangles framework Versions/Current symlinks which breaks
+# loading the .xcframework on consumer machines. `ditto` is what
+# ffmpeg-kit-spm uses and what Xcode produces internally.
 ditto -c -k --sequesterRsrc --keepParent \
   "$OUT/TagLib.xcframework" \
   "$OUT/TagLib.xcframework.zip"
