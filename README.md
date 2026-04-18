@@ -2,41 +2,31 @@
 
 **Repository:** [github.com/thebytearray/TagLib-spm](https://github.com/thebytearray/TagLib-spm)
 
-Swift Package Manager library that exposes [TagLib](https://taglib.org/) on **iOS 15+** and **macOS 12+**. It ships a small C bridge (`CTagLib`) and a Swift module **`TagLib`** for reading and writing audio metadata (tags, embedded pictures, and basic audio properties) on local files.
+Swift Package Manager library that exposes [TagLib](https://taglib.org/) on **iOS 15+** and **macOS 12+** for reading and writing audio metadata (tags, embedded pictures, and basic audio properties) on local files.
 
-Upstream TagLib is included as a **git submodule** under `vendor/taglib`.
+TagLib is shipped as a **prebuilt `TagLib.xcframework`** attached to each GitHub release. The root `Package.swift` declares a `.binaryTarget` pointing at that zip, so SPM consumers don't need to clone submodules or compile any C++ — they just download the xcframework.
 
 ---
 
 ## Table of contents
 
 1. [Requirements](#requirements)
-2. [Getting the code](#getting-the-code)
-3. [Adding the package to your app](#adding-the-package-to-your-app)
-4. [Examples](#examples-reading-and-editing-metadata)
-5. [Public Swift API](#public-swift-api)
-6. [File URLs and threading](#file-urls-and-threading)
-7. [Developing this package](#developing-this-package)
-8. [License](#license)
+2. [Adding the package to your app](#adding-the-package-to-your-app)
+3. [Examples](#examples-reading-and-editing-metadata)
+4. [Public Swift API](#public-swift-api)
+5. [File URLs and threading](#file-urls-and-threading)
+6. [Repository layout](#repository-layout)
+7. [Cutting a release](#cutting-a-release)
+8. [Building the xcframework locally (contributors only)](#building-the-xcframework-locally-contributors-only)
+9. [License](#license)
 
 ---
 
 ## Requirements
 
-- **Xcode** with Swift 5.9 or newer.
-- **Git** with submodule support.
-- **zlib** on Apple platforms (linked as `z`).
-
----
-
-## Getting the code
-
-```bash
-git clone --recurse-submodules https://github.com/thebytearray/TagLib-spm.git
-cd TagLib-spm
-```
-
-If you already cloned without submodules: `git submodule update --init --recursive`.
+- Consumers: **Xcode** with Swift 5.9 or newer. **No submodules needed.**
+- Contributors building the xcframework: additionally Git with submodule support.
+- `zlib` is linked into the xcframework at build time; consumers get it via load commands in the dylib.
 
 ---
 
@@ -44,7 +34,7 @@ If you already cloned without submodules: `git submodule update --init --recursi
 
 **Package URL:** `https://github.com/thebytearray/TagLib-spm`
 
-In Xcode: **File → Add Package Dependencies…**, paste the URL, add the **`TagLib`** product to your target.
+In Xcode: **File → Add Package Dependencies…**, paste the URL, choose a version, and add the **`TagLib`** product to your target.
 
 In another `Package.swift`:
 
@@ -168,7 +158,7 @@ Entry points are static methods on the `TagLib` enum. **`URL`** must be a **file
 | `savePropertyMap(to:propertyMap:)` | Writes tags from `[String: [String]]`. |
 | `savePictures(to:pictures:)` | Writes embedded pictures. |
 
-Types: `AudioPropertiesReadStyle` (`fast`, `average`, `accurate`), `AudioProperties`, `Metadata`, `Picture`, `PropertyMap` (`[String: [String]]`). Property keys match TagLib’s map (e.g. `TITLE`, `ARTIST`). Picture types follow ID3v2 (e.g. `"Front Cover"`).
+Types: `AudioPropertiesReadStyle` (`fast`, `average`, `accurate`), `AudioProperties`, `Metadata`, `Picture`, `PropertyMap` (`[String: [String]]`). Property keys match TagLib's map (e.g. `TITLE`, `ARTIST`). Picture types follow ID3v2 (e.g. `"Front Cover"`).
 
 ---
 
@@ -179,22 +169,68 @@ Types: `AudioPropertiesReadStyle` (`fast`, `average`, `accurate`), `AudioPropert
 
 ---
 
-## Developing this package
+## Repository layout
 
-After submodules are initialized, if **`swift build`** fails with a public-headers error for the core target, create the empty path SwiftPM expects:
+- `Package.swift` — consumer-facing manifest; a single `.binaryTarget` pointing at the xcframework zip published on the tagged GitHub release. `let release` / `let checksum` are rewritten by the release workflow on each tag.
+- `BuildPackage/Package.swift` — source manifest. Compiles TagLib from the `vendor/taglib` submodule into `TagLib.framework` via `xcodebuild archive`. Only used for building the xcframework and running tests locally or in CI.
+- `Sources/` — Swift wrapper (`TagLib`), C++ bridge (`CTagLib`), and SPM-specific config headers for `TagLibCore`.
+- `vendor/taglib` — upstream TagLib C++ sources as a git submodule (only needed by contributors).
+- `Scripts/create-xcframework.sh` — archives `TagLibSPM` from `BuildPackage/` for macOS, iOS, and iOS Simulator, bundles them into `TagLib.xcframework`, `ditto`-zips it, and writes `TagLib.xcframework.zip.sha256`.
+- `.github/workflows/release.yml` — runs the script, patches `let release` / `let checksum` in the root `Package.swift`, commits, tags, pushes, and uploads the zip to the GitHub release.
+- `.github/workflows/ci.yml` — builds and tests against the source manifest in `BuildPackage/` on every push / PR.
+
+---
+
+## Cutting a release
+
+Trigger `.github/workflows/release.yml` via **Actions → Release → Run workflow**, providing a new tag such as `v1.0.1`. The workflow:
+
+1. Checks out the branch with submodules.
+2. Runs `swift test` against `BuildPackage/`.
+3. Builds `TagLib.xcframework`, zips it with `ditto`, and records its SHA-256.
+4. Rewrites `let release` and `let checksum` in the root `Package.swift`.
+5. Commits, tags, pushes, and publishes the zip as a release asset.
+
+After the tag is pushed, the root `Package.swift` at that tag references the just-uploaded zip.
+
+---
+
+## Building the xcframework locally (contributors only)
 
 ```bash
+git clone --recurse-submodules https://github.com/thebytearray/TagLib-spm.git
+cd TagLib-spm
+# If you already cloned without submodules:
+git submodule update --init --recursive
+
 mkdir -p vendor/taglib/taglib/spm_public_headers
-swift build
+# Opening BuildPackage/Package.swift in Xcode once makes the `TagLibSPM` scheme available.
+./Scripts/create-xcframework.sh /path/to/out
+```
+
+Outputs inside `/path/to/out`:
+
+- `TagLib.xcframework`
+- `TagLib.xcframework.zip`
+- `TagLib.xcframework.zip.sha256`
+
+To run tests locally:
+
+```bash
+cd BuildPackage
 swift test
 ```
 
-API docs (DocC): `swift package --disable-sandbox preview-documentation --target TagLib`, or `swift package generate-documentation --target TagLib`.
+API docs (DocC), from `BuildPackage/`:
 
-The **`TagLib`** product is built as a **dynamic** library so Xcode can produce **`TagLib.framework`** slices for an **XCFramework**. GitHub **Actions → Release** builds `TagLib.xcframework`, zips it, and attaches **`TagLib.xcframework.zip`** to the release. Locally: `./Scripts/create-xcframework.sh <output-dir>`.
+```bash
+swift package --disable-sandbox preview-documentation --target TagLib
+# or
+swift package generate-documentation --target TagLib
+```
 
 ---
 
 ## License
 
-Packaging and Swift/C code in this repository are under **LGPL 2.1**; see [`LICENSE`](LICENSE). TagLib in `vendor/taglib` follows upstream licensing (LGPL / MPL); see that tree’s `COPYING` files and [taglib.org](https://taglib.org/).
+Packaging and Swift/C code in this repository are under **LGPL 2.1**; see [`LICENSE`](LICENSE). TagLib in `vendor/taglib` follows upstream licensing (LGPL / MPL); see that tree's `COPYING` files and [taglib.org](https://taglib.org/).

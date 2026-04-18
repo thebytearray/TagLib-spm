@@ -17,14 +17,17 @@ jobs:
 
       - name: Ensure TagLibCore spm_public_headers directory
         run: mkdir -p vendor/taglib/taglib/spm_public_headers
-
+        
       - name: Swift build (host)
+        working-directory: BuildPackage
         run: swift build
 
       - name: Swift test (macOS)
+        working-directory: BuildPackage
         run: swift test
 
       - name: Build for iOS Simulator
+        working-directory: BuildPackage
         run: |
           SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
           swift build -c debug --triple arm64-apple-ios15.0-simulator \
